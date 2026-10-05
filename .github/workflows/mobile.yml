@@ -1,0 +1,192 @@
+name: Mobile Builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/mobile.yml"
+      - "src/**"
+      - "src-tauri/**"
+      - "scripts/patch-android-manifest.mjs"
+      - "package.json"
+      - "vite.config.ts"
+      - "tsconfig.json"
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    name: Android APK
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Select Android NDK
+        shell: bash
+        run: |
+          NDK_DIR="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          if [ -z "$NDK_DIR" ]; then
+            echo "No Android NDK found in $ANDROID_HOME/ndk"
+            exit 1
+          fi
+          echo "NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Initialize Android project
+        run: npm run android:init
+
+      - name: Apply Soma mobile permissions
+        run: node scripts/patch-android-manifest.mjs
+
+      - name: Build installable debug APK
+        run: npm run android:apk
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          mkdir -p mobile-artifacts
+          find src-tauri/gen/android -type f -name "*.apk" -print -exec cp {} mobile-artifacts/ \;
+          test -n "$(find mobile-artifacts -type f -name '*.apk' -print -quit)"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Soma-Android-APK
+          path: mobile-artifacts/*.apk
+          if-no-files-found: error
+
+  ios-simulator:
+    name: iOS simulator build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Install CocoaPods
+        run: brew install cocoapods || brew upgrade cocoapods || true
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Initialize iOS project
+        run: npm run ios:init
+
+      - name: Build iOS simulator app
+        run: npx tauri ios build --debug --target aarch64-sim --ci
+
+      - name: Package simulator app
+        shell: bash
+        run: |
+          APP_PATH="$(find src-tauri/gen/apple/build -type d -name "*.app" -print -quit)"
+          test -n "$APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" Soma-iOS-Simulator.zip
+
+      - name: Upload simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Soma-iOS-Simulator
+          path: Soma-iOS-Simulator.zip
+          if-no-files-found: error
+
+  ios-ipa:
+    name: Signed iOS IPA
+    runs-on: macos-latest
+    env:
+      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+
+    steps:
+      - name: Check Apple signing credentials
+        id: signing
+        shell: bash
+        run: |
+          if [ -n "$IOS_CERTIFICATE" ] && [ -n "$IOS_CERTIFICATE_PASSWORD" ] && [ -n "$IOS_MOBILE_PROVISION" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Apple signing secrets are not configured; skipping device IPA build."
+          fi
+
+      - name: Checkout
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Rust
+        if: steps.signing.outputs.available == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Install CocoaPods
+        if: steps.signing.outputs.available == 'true'
+        run: brew install cocoapods || brew upgrade cocoapods || true
+
+      - name: Install dependencies
+        if: steps.signing.outputs.available == 'true'
+        run: npm install
+
+      - name: Initialize iOS project
+        if: steps.signing.outputs.available == 'true'
+        run: npm run ios:init
+
+      - name: Build signed IPA
+        if: steps.signing.outputs.available == 'true'
+        run: npx tauri ios build --ci --export-method app-store-connect
+
+      - name: Collect IPA
+        if: steps.signing.outputs.available == 'true'
+        shell: bash
+        run: |
+          mkdir -p mobile-artifacts
+          find src-tauri/gen/apple/build -type f -name "*.ipa" -print -exec cp {} mobile-artifacts/ \;
+          test -n "$(find mobile-artifacts -type f -name '*.ipa' -print -quit)"
+
+      - name: Upload IPA
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Soma-iOS-IPA
+          path: mobile-artifacts/*.ipa
+          if-no-files-found: error
