@@ -582,25 +582,6 @@ fn reset_soma(app: AppHandle, state: State<'_, Mutex<SomaState>>) -> Result<Dash
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .setup(|app| {
-            let state = load_state(&app.handle());
-            app.manage(Mutex::new(state));
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            runtime_platform,
-            get_dashboard,
-            create_profile,
-            submit_scan,
-            complete_session,
-            reset_soma
-        ])
-        .plugin_if(
-            cfg!(not(any(target_os = "android", target_os = "ios"))),
-            |_app, _| Ok(()),
-        );
-
     let builder = tauri::Builder::default()
         .setup(|app| {
             let state = load_state(&app.handle());
