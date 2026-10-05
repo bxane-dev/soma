@@ -1,0 +1,106 @@
+name: Publish Soma 0.2.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-0.2.0.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@v4
+
+      - name: Download validated Android artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release/android
+          gh run download 37341499094 -n Soma-Android-APK -D release/android
+
+      - name: Download validated iOS simulator artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release/ios
+          gh run download 37341499094 -n Soma-iOS-Simulator -D release/ios
+
+      - name: Normalize release filenames
+        shell: bash
+        run: |
+          APK="$(find release/android -type f -name '*.apk' -print -quit)"
+          IOS_ZIP="$(find release/ios -type f -name '*.zip' -print -quit)"
+
+          test -n "$APK"
+          test -n "$IOS_ZIP"
+
+          cp "$APK" release/Soma-0.2.0-Android.apk
+          cp "$IOS_ZIP" release/Soma-0.2.0-iOS-Simulator.zip
+
+          sha256sum             release/Soma-0.2.0-Android.apk             release/Soma-0.2.0-iOS-Simulator.zip             > release/SHA256SUMS.txt
+
+      - name: Write changelog
+        shell: bash
+        run: |
+          cat > release/CHANGELOG.md <<'EOF'
+          # Soma 0.2.0
+
+          First functional Soma application release.
+
+          ## Added
+
+          - Local profile creation and on-device persistence.
+          - Manual movement scan for balance, mobility, endurance and explosiveness.
+          - User-declared rotation and impact hard limits.
+          - Versioned Personal Body Model with provenance.
+          - Safety states: READY, REDUCED and PAUSED.
+          - Deterministic one-word Style DNA generation.
+          - Collision-aware local Soma style-name registry.
+          - Explainable Style DNA traits and active restrictions.
+          - Adaptive training curriculum generation.
+          - Training-session recording with reps and self-rated session quality.
+          - Progress, mastery and session-history tracking.
+          - Local privacy/reset controls.
+          - Responsive desktop/mobile interface.
+          - Desktop GitHub Releases auto-updater foundation.
+          - Android APK and iOS simulator CI builds.
+          - Camera and microphone permission declarations for future model-backed features.
+
+          ## Safety & validation
+
+          - Style rotation cannot exceed the user's declared rotation limit.
+          - Style impact cannot exceed the user's declared impact limit.
+          - High reported discomfort pauses active training.
+          - Generated names are single-word and collision-aware.
+          - Frontend production build passes.
+          - Rust core test suite passes.
+
+          ## Current limitations
+
+          - Camera pose estimation, live skeletal coaching, AR overlays and the offline AI coach are not faked; they remain unavailable until real validated model assets are bundled.
+          - The attached iOS build is for the iOS Simulator. A device IPA requires Apple signing credentials and a provisioning profile.
+          - The Android attachment is the current installable debug APK, intended for direct testing.
+
+          ## Attribution
+
+          Created by **bxane** — GitHub: **@bxane-dev**.
+
+          Source: https://github.com/bxane-dev/soma
+          EOF
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view v0.2.0 >/dev/null 2>&1; then
+            gh release delete v0.2.0 --yes --cleanup-tag
+          fi
+
+          gh release create v0.2.0             --repo "${{ github.repository }}"             --target cb6ace3f8e450b5b1ed3e9569d346346325f00d9             --title "Soma 0.2.0"             --notes-file release/CHANGELOG.md             release/Soma-0.2.0-Android.apk             release/Soma-0.2.0-iOS-Simulator.zip             release/SHA256SUMS.txt
