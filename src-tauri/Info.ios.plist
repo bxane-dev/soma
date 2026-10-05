@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Soma uses the camera for on-device pose tracking and movement analysis.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Soma uses the microphone for optional hands-free training controls and coaching.</string>
+  </dict>
+</plist>
