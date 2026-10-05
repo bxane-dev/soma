@@ -17,6 +17,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: soma-mobile-builds
+  cancel-in-progress: true
+
 jobs:
   android-apk:
     name: Android APK
