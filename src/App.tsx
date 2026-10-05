@@ -1,252 +1,226 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Update } from "@tauri-apps/plugin-updater";
+import { useEffect, useState } from "react";
 import {
-  checkForSomaUpdate,
-  getSomaRuntimePlatform,
-  installSomaUpdate,
-  type SomaRuntimePlatform,
-  type UpdateProgress
-} from "./updater";
+  completeSession,
+  createProfile,
+  getDashboard,
+  resetSoma,
+  submitScan,
+  type Dashboard,
+  type Drill,
+  type ProfileInput,
+  type ScanInput
+} from "./soma";
+import { getSomaRuntimePlatform, type SomaRuntimePlatform } from "./updater";
+import {
+  Onboarding,
+  OverviewPage,
+  ProgressPage,
+  ScanPage,
+  SettingsPage,
+  StylePage,
+  TrainPage
+} from "./pages";
 
-type UpdateState =
-  | { kind: "idle" }
-  | { kind: "checking" }
-  | { kind: "current" }
-  | { kind: "mobile"; platform: "android" | "ios" }
-  | { kind: "available"; version: string; notes?: string }
-  | { kind: "installing"; version: string; progress: UpdateProgress }
-  | { kind: "error"; message: string };
+type Page = "home" | "scan" | "style" | "train" | "progress" | "settings";
+type Busy = "profile" | "scan" | "session" | "reset" | null;
 
-function messageFromError(error: unknown): string {
+const defaultScan: ScanInput = {
+  balance: 60,
+  mobility: 60,
+  endurance: 60,
+  explosiveness: 50,
+  rotationLimit: 70,
+  impactLimit: 60,
+  discomfortLevel: 0
+};
+
+function messageFromError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
 export default function App() {
-  const updateRef = useRef<Update | null>(null);
-  const [platform, setPlatform] = useState<SomaRuntimePlatform | null>(null);
-  const [updateState, setUpdateState] = useState<UpdateState>({ kind: "idle" });
-
-  const checkForUpdates = useCallback(async () => {
-    if (platform === "android" || platform === "ios") {
-      setUpdateState({ kind: "mobile", platform });
-      return;
-    }
-
-    if (platform !== "desktop") return;
-
-    setUpdateState({ kind: "checking" });
-
-    try {
-      if (updateRef.current) {
-        await updateRef.current.close();
-        updateRef.current = null;
-      }
-
-      const update = await checkForSomaUpdate();
-
-      if (!update) {
-        setUpdateState({ kind: "current" });
-        return;
-      }
-
-      updateRef.current = update;
-      setUpdateState({
-        kind: "available",
-        version: update.version,
-        notes: update.body
-      });
-    } catch (error) {
-      setUpdateState({ kind: "error", message: messageFromError(error) });
-    }
-  }, [platform]);
-
-  const installUpdate = useCallback(async () => {
-    const update = updateRef.current;
-    if (!update || platform !== "desktop") return;
-
-    const version = update.version;
-    setUpdateState({
-      kind: "installing",
-      version,
-      progress: { phase: "started", downloaded: 0 }
-    });
-
-    try {
-      await installSomaUpdate(update, (progress) => {
-        setUpdateState({ kind: "installing", version, progress });
-      });
-    } catch (error) {
-      setUpdateState({ kind: "error", message: messageFromError(error) });
-    }
-  }, [platform]);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [platform, setPlatform] = useState<SomaRuntimePlatform>("desktop");
+  const [page, setPage] = useState<Page>("home");
+  const [busy, setBusy] = useState<Busy>(null);
+  const [error, setError] = useState("");
+  const [selectedDrill, setSelectedDrill] = useState<Drill | null>(null);
 
   useEffect(() => {
-    let active = true;
-
-    void getSomaRuntimePlatform()
-      .then((detected) => {
-        if (active) setPlatform(detected);
+    void Promise.all([getDashboard(), getSomaRuntimePlatform()])
+      .then(([data, runtime]) => {
+        setDashboard(data);
+        setPlatform(runtime);
       })
-      .catch((error) => {
-        if (active) {
-          setUpdateState({ kind: "error", message: messageFromError(error) });
-        }
-      });
-
-    return () => {
-      active = false;
-    };
+      .catch((err) => setError(messageFromError(err)));
   }, []);
 
-  useEffect(() => {
-    if (!platform) return;
+  if (!dashboard) {
+    return (
+      <main className="loading-screen">
+        <div className="brand-mark">S</div>
+        <p>SOMA // INITIALIZING</p>
+        {error && <div className="error-banner">{error}</div>}
+      </main>
+    );
+  }
 
-    void checkForUpdates();
+  async function handleCreate(input: ProfileInput) {
+    setBusy("profile");
+    setError("");
+    try {
+      setDashboard(await createProfile(input));
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setBusy(null);
+    }
+  }
 
-    if (platform !== "desktop") return;
+  async function handleScan(input: ScanInput) {
+    setBusy("scan");
+    setError("");
+    try {
+      setDashboard(await submitScan(input));
+      setPage("style");
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setBusy(null);
+    }
+  }
 
-    const interval = window.setInterval(() => {
-      void checkForUpdates();
-    }, 6 * 60 * 60 * 1000);
+  async function handleSession(drill: Drill, score: number, reps: number) {
+    setBusy("session");
+    setError("");
+    try {
+      setDashboard(await completeSession(drill.id, score, reps));
+      setSelectedDrill(null);
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setBusy(null);
+    }
+  }
 
-    return () => {
-      window.clearInterval(interval);
-      if (updateRef.current) {
-        void updateRef.current.close();
-      }
-    };
-  }, [checkForUpdates, platform]);
+  async function handleReset() {
+    setBusy("reset");
+    setError("");
+    try {
+      setDashboard(await resetSoma());
+      setSelectedDrill(null);
+      setPage("home");
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!dashboard.state.profile) {
+    return (
+      <Onboarding
+        busy={busy === "profile"}
+        error={error}
+        onCreate={handleCreate}
+      />
+    );
+  }
+
+  const nav: Array<[Page, string]> = [
+    ["home", "Overview"],
+    ["scan", "Scan"],
+    ["style", "Style DNA"],
+    ["train", "Train"],
+    ["progress", "Progress"],
+    ["settings", "Settings"]
+  ];
 
   return (
-    <main className="shell">
-      <section className="hero">
+    <div className="app-shell">
+      <aside className="sidebar">
         <div>
-          <p className="eyebrow">SOMA // CORE</p>
-          <h1>Adaptive movement intelligence.</h1>
-          <p className="lede">
-            Local-first scanning, Style DNA, training orchestration and live
-            coaching. Created by bxane.
-          </p>
-        </div>
-
-        <div className="status-card">
-          <span className="status-dot" />
-          <div>
-            <strong>{platform ? `Running on ${platform}` : "Starting Soma"}</strong>
-            <span>github.com/bxane-dev/soma</span>
+          <div className="logo-row">
+            <div className="brand-mark small">S</div>
+            <div>
+              <strong>SOMA</strong>
+              <span>by bxane</span>
+            </div>
           </div>
+
+          <nav>
+            {nav.map(([id, label]) => (
+              <button
+                key={id}
+                className={page === id ? "nav-item active" : "nav-item"}
+                onClick={() => setPage(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
         </div>
-      </section>
 
-      <section className="grid">
-        <article className="panel">
-          <p className="panel-label">BUILD</p>
-          <h2>Soma 0.1.0</h2>
-          <p>Desktop, Android and iOS foundations are connected to one core.</p>
-        </article>
-
-        <article className="panel updater-panel">
-          <p className="panel-label">UPDATES</p>
-          <UpdateView
-            state={updateState}
-            onCheck={checkForUpdates}
-            onInstall={installUpdate}
-          />
-        </article>
-      </section>
-
-      <footer>
-        <span>© 2026 bxane</span>
-        <span>@bxane-dev</span>
-      </footer>
-    </main>
-  );
-}
-
-function UpdateView({
-  state,
-  onCheck,
-  onInstall
-}: {
-  state: UpdateState;
-  onCheck: () => Promise<void>;
-  onInstall: () => Promise<void>;
-}) {
-  if (state.kind === "mobile") {
-    return (
-      <>
-        <h2>{state.platform === "android" ? "Android" : "iOS"} build</h2>
-        <p>
-          Mobile updates are delivered through the Play Store / App Store
-          release channel instead of Soma's desktop self-updater.
-        </p>
-      </>
-    );
-  }
-
-  if (state.kind === "checking") {
-    return (
-      <>
-        <h2>Checking GitHub Releases…</h2>
-        <p>Soma checks the stable desktop release channel automatically.</p>
-      </>
-    );
-  }
-
-  if (state.kind === "current") {
-    return (
-      <>
-        <h2>Up to date</h2>
-        <p>No newer stable Soma desktop release is available.</p>
-        <button onClick={() => void onCheck()}>Check again</button>
-      </>
-    );
-  }
-
-  if (state.kind === "available") {
-    return (
-      <>
-        <h2>Soma {state.version} available</h2>
-        <p>{state.notes || "A signed Soma update is ready to install."}</p>
-        <button onClick={() => void onInstall()}>Download & install</button>
-      </>
-    );
-  }
-
-  if (state.kind === "installing") {
-    const label =
-      state.progress.percent === undefined
-        ? "Downloading update…"
-        : `Downloading… ${state.progress.percent}%`;
-
-    return (
-      <>
-        <h2>Installing Soma {state.version}</h2>
-        <p>{label}</p>
-        <div className="progress">
-          <div
-            className="progress-fill"
-            style={{ width: `${state.progress.percent ?? 12}%` }}
-          />
+        <div className="side-footer">
+          <span>{dashboard.state.profile.displayName}</span>
+          <small>{platform.toUpperCase()} · LOCAL</small>
         </div>
-      </>
-    );
-  }
+      </aside>
 
-  if (state.kind === "error") {
-    return (
-      <>
-        <h2>Update status unavailable</h2>
-        <p>{state.message}</p>
-        <button onClick={() => void onCheck()}>Retry</button>
-      </>
-    );
-  }
+      <main className="content">
+        {error && (
+          <div className="error-banner">
+            <span>{error}</span>
+            <button onClick={() => setError("")}>Dismiss</button>
+          </div>
+        )}
 
-  return (
-    <>
-      <h2>Initializing</h2>
-      <p>Detecting the Soma runtime platform.</p>
-    </>
+        {page === "home" && (
+          <OverviewPage
+            dashboard={dashboard}
+            onScan={() => setPage("scan")}
+            onTrain={() => setPage("train")}
+          />
+        )}
+
+        {page === "scan" && (
+          <ScanPage
+            initial={dashboard.state.latestScan ?? defaultScan}
+            busy={busy === "scan"}
+            onSubmit={handleScan}
+          />
+        )}
+
+        {page === "style" && (
+          <StylePage
+            style={dashboard.state.style}
+            body={dashboard.state.bodyModel}
+            onScan={() => setPage("scan")}
+          />
+        )}
+
+        {page === "train" && (
+          <TrainPage
+            dashboard={dashboard}
+            selected={selectedDrill}
+            busy={busy === "session"}
+            onSelect={setSelectedDrill}
+            onComplete={handleSession}
+            onScan={() => setPage("scan")}
+          />
+        )}
+
+        {page === "progress" && <ProgressPage dashboard={dashboard} />}
+
+        {page === "settings" && (
+          <SettingsPage
+            platform={platform}
+            dashboard={dashboard}
+            busy={busy === "reset"}
+            onReset={handleReset}
+          />
+        )}
+      </main>
+    </div>
   );
 }
