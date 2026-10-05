@@ -350,7 +350,7 @@ fn build_curriculum(body: &BodyModel, style: &StyleDna) -> Curriculum {
         body.balance * 0.24
             + body.mobility * 0.22
             + body.endurance * 0.30
-            + (1.0 - body.explosiveness * 0.10)
+            + body.explosiveness * 0.10
             + body.confidence * 0.14,
     );
 
@@ -605,4 +605,74 @@ pub fn run() {
     builder
         .run(tauri::generate_context!())
         .expect("error while running Soma");
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn profile() -> Profile {
+        Profile {
+            id: "test-user".to_string(),
+            display_name: "Test".to_string(),
+            age: 30,
+            height_cm: 175.0,
+            weight_kg: 75.0,
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn style_never_exceeds_declared_rotation_or_impact_limits() {
+        let scan = ScanInput {
+            balance: 75.0,
+            mobility: 85.0,
+            endurance: 70.0,
+            explosiveness: 80.0,
+            rotation_limit: 30.0,
+            impact_limit: 25.0,
+            discomfort_level: 0.0,
+        };
+        let body = build_body_model(&scan, 0);
+        let style = build_style(&profile(), &body, &[]);
+        assert!(style.rotation <= body.rotation_limit);
+        assert!(style.impact <= body.impact_limit);
+    }
+
+    #[test]
+    fn high_reported_discomfort_pauses_curriculum() {
+        let scan = ScanInput {
+            balance: 80.0,
+            mobility: 80.0,
+            endurance: 80.0,
+            explosiveness: 80.0,
+            rotation_limit: 80.0,
+            impact_limit: 80.0,
+            discomfort_level: 8.0,
+        };
+        let body = build_body_model(&scan, 0);
+        let style = build_style(&profile(), &body, &[]);
+        let curriculum = build_curriculum(&body, &style);
+        assert_eq!(body.safety_state, "PAUSED");
+        assert!(curriculum.drills.is_empty());
+    }
+
+    #[test]
+    fn generated_names_are_single_word_and_collision_aware() {
+        let scan = ScanInput {
+            balance: 60.0,
+            mobility: 60.0,
+            endurance: 60.0,
+            explosiveness: 50.0,
+            rotation_limit: 70.0,
+            impact_limit: 60.0,
+            discomfort_level: 0.0,
+        };
+        let body = build_body_model(&scan, 0);
+        let first = build_style(&profile(), &body, &[]);
+        let second = build_style(&profile(), &body, &[first.name.clone()]);
+        assert!(!first.name.contains(char::is_whitespace));
+        assert_ne!(first.name.to_lowercase(), second.name.to_lowercase());
+    }
 }
