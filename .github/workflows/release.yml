@@ -36,7 +36,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            xdg-utils
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -53,11 +54,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
-
-      - name: Configure signed updater
-        run: npm run updater:configure
-        env:
-          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
 
       - name: Build and publish GitHub Release
         uses: tauri-apps/tauri-action@v1
