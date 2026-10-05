@@ -1,12 +1,13 @@
-import {
-  check,
-  type DownloadEvent,
-  type Update
+import type {
+  DownloadEvent,
+  Update
 } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 
 export const SOMA_UPDATE_ENDPOINT =
   "https://github.com/bxane-dev/soma/releases/latest/download/latest.json";
+
+export type SomaRuntimePlatform = "desktop" | "android" | "ios";
 
 export type UpdateProgress = {
   phase: "started" | "downloading" | "finished";
@@ -15,7 +16,12 @@ export type UpdateProgress = {
   percent?: number;
 };
 
+export async function getSomaRuntimePlatform(): Promise<SomaRuntimePlatform> {
+  return invoke<SomaRuntimePlatform>("runtime_platform");
+}
+
 export async function checkForSomaUpdate(): Promise<Update | null> {
+  const { check } = await import("@tauri-apps/plugin-updater");
   return check({ timeout: 15_000 });
 }
 
@@ -61,7 +67,6 @@ export async function installSomaUpdate(
 
   await update.downloadAndInstall(handleEvent, { timeout: 120_000 });
 
-  // On Windows the updater exits after launching the installer.
-  // On macOS/Linux, restart so the newly installed build is loaded.
+  const { relaunch } = await import("@tauri-apps/plugin-process");
   await relaunch();
 }
