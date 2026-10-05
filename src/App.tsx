@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
   checkForSomaUpdate,
+  getSomaRuntimePlatform,
   installSomaUpdate,
+  type SomaRuntimePlatform,
   type UpdateProgress
 } from "./updater";
 
@@ -10,6 +12,7 @@ type UpdateState =
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "current" }
+  | { kind: "mobile"; platform: "android" | "ios" }
   | { kind: "available"; version: string; notes?: string }
   | { kind: "installing"; version: string; progress: UpdateProgress }
   | { kind: "error"; message: string };
@@ -20,9 +23,17 @@ function messageFromError(error: unknown): string {
 
 export default function App() {
   const updateRef = useRef<Update | null>(null);
+  const [platform, setPlatform] = useState<SomaRuntimePlatform | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "idle" });
 
   const checkForUpdates = useCallback(async () => {
+    if (platform === "android" || platform === "ios") {
+      setUpdateState({ kind: "mobile", platform });
+      return;
+    }
+
+    if (platform !== "desktop") return;
+
     setUpdateState({ kind: "checking" });
 
     try {
@@ -47,11 +58,11 @@ export default function App() {
     } catch (error) {
       setUpdateState({ kind: "error", message: messageFromError(error) });
     }
-  }, []);
+  }, [platform]);
 
   const installUpdate = useCallback(async () => {
     const update = updateRef.current;
-    if (!update) return;
+    if (!update || platform !== "desktop") return;
 
     const version = update.version;
     setUpdateState({
@@ -67,10 +78,32 @@ export default function App() {
     } catch (error) {
       setUpdateState({ kind: "error", message: messageFromError(error) });
     }
+  }, [platform]);
+
+  useEffect(() => {
+    let active = true;
+
+    void getSomaRuntimePlatform()
+      .then((detected) => {
+        if (active) setPlatform(detected);
+      })
+      .catch((error) => {
+        if (active) {
+          setUpdateState({ kind: "error", message: messageFromError(error) });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
+    if (!platform) return;
+
     void checkForUpdates();
+
+    if (platform !== "desktop") return;
 
     const interval = window.setInterval(() => {
       void checkForUpdates();
@@ -82,7 +115,7 @@ export default function App() {
         void updateRef.current.close();
       }
     };
-  }, [checkForUpdates]);
+  }, [checkForUpdates, platform]);
 
   return (
     <main className="shell">
@@ -99,7 +132,7 @@ export default function App() {
         <div className="status-card">
           <span className="status-dot" />
           <div>
-            <strong>Repository connected</strong>
+            <strong>{platform ? `Running on ${platform}` : "Starting Soma"}</strong>
             <span>github.com/bxane-dev/soma</span>
           </div>
         </div>
@@ -109,11 +142,11 @@ export default function App() {
         <article className="panel">
           <p className="panel-label">BUILD</p>
           <h2>Soma 0.1.0</h2>
-          <p>Desktop foundation online. Production engines are next.</p>
+          <p>Desktop, Android and iOS foundations are connected to one core.</p>
         </article>
 
         <article className="panel updater-panel">
-          <p className="panel-label">AUTO UPDATER</p>
+          <p className="panel-label">UPDATES</p>
           <UpdateView
             state={updateState}
             onCheck={checkForUpdates}
@@ -139,11 +172,23 @@ function UpdateView({
   onCheck: () => Promise<void>;
   onInstall: () => Promise<void>;
 }) {
+  if (state.kind === "mobile") {
+    return (
+      <>
+        <h2>{state.platform === "android" ? "Android" : "iOS"} build</h2>
+        <p>
+          Mobile updates are delivered through the Play Store / App Store
+          release channel instead of Soma's desktop self-updater.
+        </p>
+      </>
+    );
+  }
+
   if (state.kind === "checking") {
     return (
       <>
         <h2>Checking GitHub Releases…</h2>
-        <p>Soma checks the stable release channel automatically.</p>
+        <p>Soma checks the stable desktop release channel automatically.</p>
       </>
     );
   }
@@ -152,7 +197,7 @@ function UpdateView({
     return (
       <>
         <h2>Up to date</h2>
-        <p>No newer stable Soma release is available.</p>
+        <p>No newer stable Soma desktop release is available.</p>
         <button onClick={() => void onCheck()}>Check again</button>
       </>
     );
@@ -191,7 +236,7 @@ function UpdateView({
   if (state.kind === "error") {
     return (
       <>
-        <h2>Updater unavailable</h2>
+        <h2>Update status unavailable</h2>
         <p>{state.message}</p>
         <button onClick={() => void onCheck()}>Retry</button>
       </>
@@ -200,9 +245,8 @@ function UpdateView({
 
   return (
     <>
-      <h2>GitHub Releases</h2>
-      <p>Stable updates are checked on launch and every six hours.</p>
-      <button onClick={() => void onCheck()}>Check now</button>
+      <h2>Initializing</h2>
+      <p>Detecting the Soma runtime platform.</p>
     </>
   );
 }
