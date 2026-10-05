@@ -130,13 +130,15 @@ jobs:
       IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
       IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+      APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+      KEYCHAIN_PASSWORD: soma-ci-keychain
 
     steps:
       - name: Check Apple signing credentials
         id: signing
         shell: bash
         run: |
-          if [ -n "$IOS_CERTIFICATE" ] && [ -n "$IOS_CERTIFICATE_PASSWORD" ] && [ -n "$IOS_MOBILE_PROVISION" ]; then
+          if [ -n "$IOS_CERTIFICATE" ] && [ -n "$IOS_CERTIFICATE_PASSWORD" ] && [ -n "$IOS_MOBILE_PROVISION" ] && [ -n "$APPLE_DEVELOPMENT_TEAM" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
@@ -166,6 +168,33 @@ jobs:
       - name: Install dependencies
         if: steps.signing.outputs.available == 'true'
         run: npm install
+
+      - name: Import Apple signing certificate
+        if: steps.signing.outputs.available == 'true'
+        shell: bash
+        run: |
+          CERT_PATH="$RUNNER_TEMP/soma-ios-certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/soma-signing.keychain-db"
+
+          echo "$IOS_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
+        if: steps.signing.outputs.available == 'true'
+        shell: bash
+        run: |
+          PROFILE_PATH="$RUNNER_TEMP/soma.mobileprovision"
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          mkdir -p "$PROFILE_DIR"
+          echo "$IOS_MOBILE_PROVISION" | base64 --decode > "$PROFILE_PATH"
+          PROFILE_UUID="$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)"
+          cp "$PROFILE_PATH" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
 
       - name: Initialize iOS project
         if: steps.signing.outputs.available == 'true'
