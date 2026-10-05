@@ -4,15 +4,34 @@ Soma is a local-first adaptive movement and personalized martial-art training pl
 
 **Created by bxane** — [@bxane-dev](https://github.com/bxane-dev)
 
-> Status: production architecture bootstrap. The desktop application is being built with Tauri 2 + React/TypeScript.
+## Current implementation — 0.2.0
 
-## Auto updates
+Soma now has a real end-to-end local application flow:
 
-Soma is wired to GitHub Releases from this repository:
+- local profile creation
+- manual movement scan
+- hard rotation and impact limits
+- Personal Body Model with versioning and provenance
+- deterministic one-word Style DNA generation
+- collision-aware local style registry
+- explainable style traits and restrictions
+- safety states: READY / REDUCED / PAUSED
+- adaptive drill curriculum
+- recorded sessions and progress
+- local JSON persistence on desktop, Android and iOS
+- privacy/reset controls
+- signed GitHub Releases desktop updater
+- Android APK CI
+- iOS simulator CI
+- signed IPA CI path when Apple credentials are configured
 
-`https://github.com/bxane-dev/soma/releases/latest/download/latest.json`
+## What Soma does not fake
 
-Stable desktop builds check for updates on launch. Update bundles are verified by Tauri's updater signature system before installation.
+The current build does **not** pretend to have camera pose measurements or a local language model when those model assets are not installed.
+
+Camera-derived biomechanics, live pose coaching, AR overlays and a true local AI coach remain model-backed features to add with bundled, validated model files. Soma's current manual scan values are explicitly user-declared inputs.
+
+Soma is a training tool, not a medical diagnostic or medical-clearance system.
 
 ## Development
 
@@ -20,18 +39,56 @@ Prerequisites:
 
 - Node.js 22+
 - Rust stable
-- Tauri desktop prerequisites for your operating system
+- Tauri 2 platform prerequisites
+
+Desktop:
 
 ```bash
 npm install
 npm run tauri dev
 ```
 
-## Release
+Android:
 
-Tags matching `v*` trigger the release workflow. The release workflow builds Windows, Linux, and macOS installers and publishes updater metadata.
+```bash
+npm install
+npm run android:init
+node scripts/patch-android-manifest.mjs
+npm run android:apk
+```
 
-Before the first signed release, configure the signing secrets described in [docs/UPDATER.md](docs/UPDATER.md).
+iOS requires macOS/Xcode:
+
+```bash
+npm install
+npm run ios:init
+npm run ios:ipa
+```
+
+## Validation
+
+Every relevant push runs:
+
+- TypeScript/Vite production build
+- Rust core unit tests
+- Android build
+- iOS simulator build
+
+The Rust tests enforce important invariants such as style rotation/impact not exceeding declared limits and high reported discomfort pausing active curriculum.
+
+## Auto updates
+
+Desktop Soma checks:
+
+`https://github.com/bxane-dev/soma/releases/latest/download/latest.json`
+
+Stable desktop update bundles are signature-verified before installation.
+
+See [docs/UPDATER.md](docs/UPDATER.md).
+
+## Mobile
+
+See [docs/MOBILE.md](docs/MOBILE.md).
 
 ## Identity
 
