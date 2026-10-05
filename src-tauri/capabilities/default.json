@@ -1,8 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default Soma desktop capability",
+  "description": "Soma desktop capability",
   "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows"],
   "permissions": [
     "core:default",
     "process:default",
